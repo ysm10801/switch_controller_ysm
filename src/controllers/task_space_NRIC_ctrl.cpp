@@ -201,10 +201,10 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   // h.segment(0, 7) = -1e6 * (enr_min + q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt);    // e_nr Constraints
   // h.segment(7, 7) = 1e6 * (enr_max + q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt);     // e_nr Constraints
-  h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
-  h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
-  // h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*(tauA_min + tau_shift) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
-  // h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*(tauA_max + tau_shift) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
+  // h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
+  // h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
+  h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*(tauA_min + tau_shift) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
+  h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*(tauA_max + tau_shift) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
   h.segment(14, 7) = - ddq_min; 
   h.segment(21, 7) = ddq_max;
 
@@ -238,8 +238,8 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   }
 
   // Update nominal plant
-  // C_nominal_plant.ddq = ddq_opt;      //CNRIC
-  C_nominal_plant.ddq = C_nominal_mass_matrix.inverse()*(tauC - C_nominal_coriolis - C_nominal_gravity);        // NRIC
+  C_nominal_plant.ddq = ddq_opt;      //CNRIC
+  // C_nominal_plant.ddq = C_nominal_mass_matrix.inverse()*(tauC - C_nominal_coriolis - C_nominal_gravity);        // NRIC
   C_nominal_plant.dq += C_nominal_plant.ddq * dt;
   C_nominal_plant.q += C_nominal_plant.dq * dt;
   C_nominal_EE_pose = robot->RequestNominalEEPose(C_nominal_plant.q);
@@ -372,6 +372,7 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   Eigen::VectorXd tauC_t = tauA;
   Eigen::VectorXd tauA_t = temp_a;
   /// TODO: TAU_A JOINT : ONLT E_RN  OR  TAU_A(E_RN + E_DOT_RN)
+  // Eigen::VectorXd tauA_j = s_vector;
   Eigen::VectorXd tauA_j = e_RN;
 
   for(int i ; i < 6 ; i++){

@@ -250,7 +250,7 @@ void SwitchControllerNode::Callback_tau_const(const std_msgs::Float64MultiArray:
   } 
   std::cout << "\n" <<std::endl;
 
-  // ctrl_ts_nric.tau_shift = - 3.0 * (ref_cnom_error + ref_act_error);
+  ctrl_ts_nric.tau_shift = - 3.0 * (ref_cnom_error + ref_act_error);
   // ctrl_ts_nric.tau_shift = - 3.0 * ref_act_error;
   // ctrl_ts_nric.tau_shift.setZero();
 
