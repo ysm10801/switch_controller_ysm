@@ -43,6 +43,7 @@ public:
   RobotTorque7 GetGravityVector();
   RobotInertia GetMassMatrix();
   Jacobian7 GetTaskJacobian();
+  Jacobian7 GetBodyJacobian();
 
   //Nominal_robot_dynamics
   Eigen::VectorXd RequestNominalCoriolisVector(const Eigen::VectorXd& q, const Eigen::VectorXd& dq);

@@ -30,40 +30,42 @@ private:
   ros::Publisher tau_C_pub;
   ros::Publisher tau_diff_pub;
   ros::Publisher QP_checker_pub;
+  ros::Publisher jacobian_pub;  // Real robot's body jacobian for FT sensor to joint torque
 
   ros::Subscriber ee_pose_d_sub;
-  ros::Subscriber pred_pose_tauA_sub;
+  ros::Subscriber pred_force_sub;
+  // ros::Subscriber pred_pose_tauA_sub;
 
-  struct PoseData {
-    Eigen::Affine3d transform;
+  // struct PoseData {
+  //   Eigen::Affine3d transform;
 
-    PoseData() : transform(Eigen::Affine3d::Identity()) {}
-  };
+  //   PoseData() : transform(Eigen::Affine3d::Identity()) {}
+  // };
 
-  struct TauData {
-    Eigen::VectorXd tau;
+  // struct TauData {
+  //   Eigen::VectorXd tau;
 
-    TauData() : tau(7) {tau.setZero();}
-  };
+  //   TauData() : tau(7) {tau.setZero();}
+  // };
   
-  struct VirtualPlant {
-    Eigen::VectorXd q;
-    Eigen::VectorXd dq;
-    Eigen::VectorXd ddq;
-    Eigen::Affine3d ee_pose;
+  // struct VirtualPlant {
+  //   Eigen::VectorXd q;
+  //   Eigen::VectorXd dq;
+  //   Eigen::VectorXd ddq;
+  //   Eigen::Affine3d ee_pose;
 
-    VirtualPlant() : q(7), dq(7), ddq(7), ee_pose(Eigen::Affine3d::Identity()) {
-      q.setZero();
-      dq.setZero();
-      ddq.setZero();
-    }
-  };
+  //   VirtualPlant() : q(7), dq(7), ddq(7), ee_pose(Eigen::Affine3d::Identity()) {
+  //     q.setZero();
+  //     dq.setZero();
+  //     ddq.setZero();
+  //   }
+  // };
 
   // std::vector<PoseData> pred_reference;
   // std::vector<PoseData> pred_action;
 
-  VirtualPlant virtual_plant_ref;
-  VirtualPlant virtual_plant_act;
+  // VirtualPlant virtual_plant_ref;
+  // VirtualPlant virtual_plant_act;
 
   dynamic_reconfigure::Server<switch_controller::SwitchControllerConfig> server;
   dynamic_reconfigure::Server<switch_controller::SwitchControllerConfig>::CallbackType f;
@@ -82,15 +84,18 @@ public:
   void PublishTauAJoint();
   void PublishTauCTask();
   void PublishTauDiffTask();
+  void PublishJacobian();
   void Callback_ee_pose_d(const geometry_msgs::PoseStamped::ConstPtr& msg);
-  void Callback_tau_const(const std_msgs::Float64MultiArray::ConstPtr& msg);
+  void Callback_pred_force(const std_msgs::Float64MultiArray::ConstPtr& msg);
+  // void Callback_tau_const(const std_msgs::Float64MultiArray::ConstPtr& msg);
   // API
   void SetControllerROSWrapper(int ctrl_mode);
   void DynConfigCallback(SwitchControllerConfig &config, uint32_t level);  
 };
 
 SwitchControllerNode::SwitchControllerNode(Robot7 *robot_ptr)
-  :SwitchController(robot_ptr), virtual_plant_ref(), virtual_plant_act(){
+  :SwitchController(robot_ptr){
+  // :SwitchController(robot_ptr), virtual_plant_ref(), virtual_plant_act(){
   //advertise topics
   joint_state_pub = n.advertise<sensor_msgs::JointState>("joint_state", 1);
   ee_pose_pub = n.advertise<geometry_msgs::PoseStamped>("ee_pose", 1);
@@ -102,8 +107,10 @@ SwitchControllerNode::SwitchControllerNode(Robot7 *robot_ptr)
   tau_A_joint_pub = n.advertise<std_msgs::Float64MultiArray>("tau_A_joint", 1);
   tau_C_pub = n.advertise<std_msgs::Float64MultiArray>("tau_C", 1);
   tau_diff_pub = n.advertise<std_msgs::Float64MultiArray>("tau_diff", 1);
+  jacobian_pub = n.advertise<std_msgs::Float64MultiArray>("jacobian", 1);
   ee_pose_d_sub = n.subscribe("ee_pose_d", 1, &SwitchControllerNode::Callback_ee_pose_d, this);
-  pred_pose_tauA_sub = n.subscribe("pred_pose_tauA", 1, &SwitchControllerNode::Callback_tau_const, this);
+  pred_force_sub = n.subscribe("pred_force", 1, &SwitchControllerNode::Callback_pred_force, this);
+  // pred_pose_tauA_sub = n.subscribe("pred_pose_force", 1, &SwitchControllerNode::Callback_tau_const, this);
   server.setCallback(boost::bind( &SwitchControllerNode::DynConfigCallback, this, _1, _2));
 
   // SetControllerROSWrapper(CTRLMODE_TASK_NRIC); //Init
@@ -143,123 +150,150 @@ void SwitchControllerNode::Callback_ee_pose_d(const geometry_msgs::PoseStamped::
   ctrl_ts_nric.EE_pose_d.linear() = ee_rot_d.toRotationMatrix();
 }
 
-void SwitchControllerNode::Callback_tau_const(const std_msgs::Float64MultiArray::ConstPtr &msg){
-
+void SwitchControllerNode::Callback_pred_force(const std_msgs::Float64MultiArray::ConstPtr &msg){
   RobotState7 state = robot->ReadState();
   const double dt = 0.001;
-  std::array<double, 7> reflected_inertia_v = ctrl_ts_nric.GetReflectedInertia();
-  int horizon = msg->data.size()/14 - 1;
-
-  std::vector<PoseData> pred_reference(horizon);
-  std::vector<PoseData> pred_action(horizon);
-  std::vector<TauData> obs_const_nom(2);
   
-  for(int t=0 ; t<2 ; ++t){
-    for(int k=0 ; k<7 ; ++k){
-      obs_const_nom[t].tau(k) = msg->data[7*t + k];
-    }
+  for(int t=0 ; t<6 ; ++t){
+    ctrl_ts_nric.FT_pred(t) = msg->data[t];
   }
+  // std::cout << "Predicted Force updated\n" << std::endl;
+}
 
-  for(int i=0 ; i<2 * horizon ; i++){
-    int idx = i*7 + 14;
-    Eigen::Affine3d &target_transform = (i < horizon) ? pred_action[i].transform : pred_reference[i - horizon].transform;
+// void SwitchControllerNode::Callback_tau_const(const std_msgs::Float64MultiArray::ConstPtr &msg){
+
+//   RobotState7 state = robot->ReadState();
+//   const double dt = 0.001;
+//   std::array<double, 7> reflected_inertia_v = ctrl_ts_nric.GetReflectedInertia();
+//   Eigen::MatrixXd reflected_inertia(7,7); reflected_inertia.setZero();
+//   reflected_inertia.diagonal() = Eigen::Map<Eigen::VectorXd>(reflected_inertia_v.data(), 7);
+//   int horizon = msg->data.size()/13;
+
+//   std::vector<PoseData> pred_reference(horizon);
+//   // std::vector<PoseData> pred_action(horizon);
+//   // std::vector<TauData> obs_const_nom(2);
+  
+//   // for(int t=0 ; t<2 ; ++t){
+//   //   for(int k=0 ; k<7 ; ++k){
+//   //     obs_const_nom[t].tau(k) = msg->data[7*t + k];
+//   //   }
+//   // }
+
+//   for(int i=0 ; i < horizon ; i++){
+//     int idx = i*7;
+//     pred_reference[i].transform.translation() << msg->data[idx], msg->data[idx + 1], msg->data[idx + 2];
     
-    target_transform.translation() << msg->data[idx], msg->data[idx + 1], msg->data[idx + 2];
-    
-    Eigen::Quaterniond ee_rot_d(
-      msg->data[idx + 3],
-      msg->data[idx + 4],
-      msg->data[idx + 5],
-      msg->data[idx + 6]);
-    target_transform.linear() = ee_rot_d.toRotationMatrix();
-  }
+//     Eigen::Quaterniond ee_rot_d(
+//       msg->data[idx + 3],
+//       msg->data[idx + 4],
+//       msg->data[idx + 5],
+//       msg->data[idx + 6]);
+//       pred_reference[i].transform.linear() = ee_rot_d.toRotationMatrix();
+//   }
 
-  // Virtual Robot Init
-  virtual_plant_ref.q = Eigen::Map<Eigen::VectorXd>(state.q.data(), 7);
-  virtual_plant_ref.dq = Eigen::Map<Eigen::VectorXd>(state.dq.data(), 7);
+//   Eigen::Vector3d task_error; task_error.setZero();
+//   for(int i=0 ; i<horizon ; i++){
+//     task_error += pred_reference[i].transform.translation() - pred_action[i].transform.translation();
+//   }
+//   task_error = task_error / horizon;
 
-  virtual_plant_act.q = ctrl_ts_nric.GetNominalConfig();
-  virtual_plant_act.dq = ctrl_ts_nric.GetNominalJointVel();
+//   std::cout << "Mean_task_error" << std::endl;
+//   for(int i=0 ; i<3 ; ++i){
+//     std::cout << task_error(i) <<std::endl;
+//   }
+//   std::cout << "\n" <<std::endl;
 
-  Eigen::MatrixXd reflected_inertia(7,7); reflected_inertia.setZero();
-  reflected_inertia.diagonal() = Eigen::Map<Eigen::VectorXd>(reflected_inertia_v.data(), 7);
-  Eigen::VectorXd tau_ref(7); tau_ref.setZero();
-  Eigen::VectorXd tau_act(7); tau_act.setZero();
+//   // Virtual Robot Init
+//   virtual_plant_ref.q = Eigen::Map<Eigen::VectorXd>(state.q.data(), 7);
+//   virtual_plant_ref.dq = Eigen::Map<Eigen::VectorXd>(state.dq.data(), 7);
 
-  // Virtual Robot configs
-  Eigen::MatrixXd virtual_plant_ref_mass_matrix = robot->RequestNominalMassMatrix(virtual_plant_ref.q) + reflected_inertia;
-  Eigen::MatrixXd virtual_plant_ref_coriolis = robot->RequestNominalCoriolisVector(virtual_plant_ref.q, virtual_plant_ref.dq);
-  Eigen::VectorXd virtual_plant_ref_gravity = robot->RequestNominalGravityVector(virtual_plant_ref.q);
-  Eigen::Affine3d virtual_plant_ref_EE_pose = robot->RequestNominalEEPose(virtual_plant_ref.q);
-  virtual_plant_ref.ee_pose = virtual_plant_ref_EE_pose;
+//   Eigen::MatrixXd J_t = robot->RequestNominalTaskJacobian(virtual_plant_ref.q);
+//   Eigen::MatrixXd pseudo_inverse_J_t = J_t.transpose() * 
+//     (J_t * J_t.transpose()).inverse();
 
-  Eigen::MatrixXd virtual_plant_act_mass_matrix = robot->RequestNominalMassMatrix(virtual_plant_act.q) + reflected_inertia;
-  Eigen::MatrixXd virtual_plant_act_coriolis = robot->RequestNominalCoriolisVector(virtual_plant_act.q, virtual_plant_act.dq);
-  Eigen::VectorXd virtual_plant_act_gravity = robot->RequestNominalGravityVector(virtual_plant_act.q);
-  Eigen::Affine3d virtual_plant_act_EE_pose = robot->RequestNominalEEPose(virtual_plant_act.q);
-  virtual_plant_act.ee_pose = virtual_plant_act_EE_pose;
+//   Eigen::MatrixXd ref_mass_matrix = robot->RequestNominalMassMatrix(virtual_plant_ref.q) + reflected_inertia;
 
-  Eigen::VectorXd ref_act_error(7); ref_act_error.setZero();
-  Eigen::VectorXd ref_cnom_error(7); ref_act_error.setZero();
+//   virtual_plant_act.q = ctrl_ts_nric.GetNominalConfig();
+//   virtual_plant_act.dq = ctrl_ts_nric.GetNominalJointVel();
 
-  ref_cnom_error = (obs_const_nom[0].tau + obs_const_nom[1].tau)/2;
+//   Eigen::VectorXd tau_ref(7); tau_ref.setZero();
+//   Eigen::VectorXd tau_act(7); tau_act.setZero();
 
-  std::cout << "waypoints number : " << horizon << std::endl;
+//   // Virtual Robot configs
+//   Eigen::MatrixXd virtual_plant_ref_mass_matrix = robot->RequestNominalMassMatrix(virtual_plant_ref.q) + reflected_inertia;
+//   Eigen::MatrixXd virtual_plant_ref_coriolis = robot->RequestNominalCoriolisVector(virtual_plant_ref.q, virtual_plant_ref.dq);
+//   Eigen::VectorXd virtual_plant_ref_gravity = robot->RequestNominalGravityVector(virtual_plant_ref.q);
+//   Eigen::Affine3d virtual_plant_ref_EE_pose = robot->RequestNominalEEPose(virtual_plant_ref.q);
+//   virtual_plant_ref.ee_pose = virtual_plant_ref_EE_pose;
 
-  // StepstauC
-  for(int wp=0 ; wp < horizon ; wp++){
-    for(int k=0 ; k<10 ; k++){
-      tau_ref = ctrl_ts_nric.computeTau(virtual_plant_ref.q, virtual_plant_ref.dq, pred_reference[wp].transform);
-      virtual_plant_ref.ddq = virtual_plant_ref_mass_matrix.inverse()*(tau_ref - virtual_plant_ref_coriolis - virtual_plant_ref_gravity);
-      virtual_plant_ref.dq += virtual_plant_ref.ddq * dt;
-      virtual_plant_ref.q += virtual_plant_ref.dq * dt;
-      virtual_plant_ref.ee_pose = robot->RequestNominalEEPose(virtual_plant_ref.q);
+//   Eigen::MatrixXd virtual_plant_act_mass_matrix = robot->RequestNominalMassMatrix(virtual_plant_act.q) + reflected_inertia;
+//   Eigen::MatrixXd virtual_plant_act_coriolis = robot->RequestNominalCoriolisVector(virtual_plant_act.q, virtual_plant_act.dq);
+//   Eigen::VectorXd virtual_plant_act_gravity = robot->RequestNominalGravityVector(virtual_plant_act.q);
+//   Eigen::Affine3d virtual_plant_act_EE_pose = robot->RequestNominalEEPose(virtual_plant_act.q);
+//   virtual_plant_act.ee_pose = virtual_plant_act_EE_pose;
 
-      virtual_plant_ref_mass_matrix = robot->RequestNominalMassMatrix(virtual_plant_ref.q) + reflected_inertia;
-      virtual_plant_ref_coriolis = robot->RequestNominalCoriolisVector(virtual_plant_ref.q, virtual_plant_ref.dq);
-      virtual_plant_ref_gravity = robot->RequestNominalGravityVector(virtual_plant_ref.q);
+//   Eigen::VectorXd ref_act_error(7); ref_act_error.setZero();
+
+//   std::cout << "waypoints number : " << horizon << std::endl;
+
+//   // Steps tauC
+//   for(int wp=0 ; wp < horizon ; wp++){
+//     for(int k=0 ; k<15 ; k++){
+//       tau_ref = ctrl_ts_nric.computeTau(virtual_plant_ref.q, virtual_plant_ref.dq, pred_reference[wp].transform);
+//       virtual_plant_ref.ddq = virtual_plant_ref_mass_matrix.inverse()*(tau_ref - virtual_plant_ref_coriolis - virtual_plant_ref_gravity);
+//       virtual_plant_ref.dq += virtual_plant_ref.ddq * dt;
+//       virtual_plant_ref.q += virtual_plant_ref.dq * dt;
+//       virtual_plant_ref.ee_pose = robot->RequestNominalEEPose(virtual_plant_ref.q);
+
+//       virtual_plant_ref_mass_matrix = robot->RequestNominalMassMatrix(virtual_plant_ref.q) + reflected_inertia;
+//       virtual_plant_ref_coriolis = robot->RequestNominalCoriolisVector(virtual_plant_ref.q, virtual_plant_ref.dq);
+//       virtual_plant_ref_gravity = robot->RequestNominalGravityVector(virtual_plant_ref.q);
 
       
-      tau_act = ctrl_ts_nric.computeTau(virtual_plant_act.q, virtual_plant_act.dq, pred_action[wp].transform);
-      virtual_plant_act.ddq = virtual_plant_act_mass_matrix.inverse()*(tau_ref - virtual_plant_act_coriolis - virtual_plant_act_gravity);
-      virtual_plant_act.dq += virtual_plant_act.ddq * dt;
-      virtual_plant_act.q += virtual_plant_act.dq * dt;
-      virtual_plant_act.ee_pose = robot->RequestNominalEEPose(virtual_plant_act.q);
+//       tau_act = ctrl_ts_nric.computeTau(virtual_plant_act.q, virtual_plant_act.dq, pred_action[wp].transform);
+//       virtual_plant_act.ddq = virtual_plant_act_mass_matrix.inverse()*(tau_ref - virtual_plant_act_coriolis - virtual_plant_act_gravity);
+//       virtual_plant_act.dq += virtual_plant_act.ddq * dt;
+//       virtual_plant_act.q += virtual_plant_act.dq * dt;
+//       virtual_plant_act.ee_pose = robot->RequestNominalEEPose(virtual_plant_act.q);
 
-      virtual_plant_act_mass_matrix = robot->RequestNominalMassMatrix(virtual_plant_act.q) + reflected_inertia;
-      virtual_plant_act_coriolis = robot->RequestNominalCoriolisVector(virtual_plant_act.q, virtual_plant_act.dq);
-      virtual_plant_act_gravity = robot->RequestNominalGravityVector(virtual_plant_act.q);
-    }
-    ref_act_error += virtual_plant_ref.q - virtual_plant_act.q ;
-    // std::cout << "ref_act_error" << std::endl;
-    // for(int i=0 ; i<7 ; ++i){
-    //   std::cout << ref_act_error(i) <<std::endl;
-    // }
-    // std::cout << "\n" <<std::endl;
-  }
-  ref_act_error = ref_act_error / horizon;
-  std::cout << "Mean_ref_act_error" << std::endl;
-  for(int i=0 ; i<7 ; ++i){
-    std::cout << ref_act_error(i) <<std::endl;
-  } 
-  std::cout << "\n" <<std::endl;
+//       virtual_plant_act_mass_matrix = robot->RequestNominalMassMatrix(virtual_plant_act.q) + reflected_inertia;
+//       virtual_plant_act_coriolis = robot->RequestNominalCoriolisVector(virtual_plant_act.q, virtual_plant_act.dq);
+//       virtual_plant_act_gravity = robot->RequestNominalGravityVector(virtual_plant_act.q);
+//     }
+//     ref_act_error += virtual_plant_ref.q - virtual_plant_act.q ;
+//     // std::cout << "ref_act_error" << std::endl;
+//     // for(int i=0 ; i<7 ; ++i){
+//     //   std::cout << ref_act_error(i) <<std::endl;
+//     // }
+//     // std::cout << "\n" <<std::endl;
+//   }
+//   ref_act_error = ref_act_error / horizon;
+//   std::cout << "Mean_ref_act_error" << std::endl;
+//   for(int i=0 ; i<7 ; ++i){
+//     std::cout << ref_act_error(i) <<std::endl;
+//   } 
+//   std::cout << "\n" <<std::endl;
 
-  std::cout << "Mean_ref_cnom_error" << std::endl;
-  for(int i=0 ; i<7 ; ++i){
-    std::cout << ref_cnom_error(i) <<std::endl;
-  } 
-  std::cout << "\n" <<std::endl;
+//   std::cout << "Mean_ref_cnom_error" << std::endl;
+//   for(int i=0 ; i<7 ; ++i){
+//     std::cout << ref_cnom_error(i) <<std::endl;
+//   } 
+//   std::cout << "\n" <<std::endl;  
 
-  ctrl_ts_nric.tau_shift = - 3.0 * (ref_cnom_error + ref_act_error);
-  // ctrl_ts_nric.tau_shift = - 3.0 * ref_act_error;
-  // ctrl_ts_nric.tau_shift.setZero();
 
-  std::cout << "tau_shift" << std::endl;
-  for(int i=0 ; i<7 ; ++i){
-    std::cout << ctrl_ts_nric.tau_shift(i) << std::endl;
-  } 
-  std::cout << "\n" <<std::endl;
-}
+//   // Eigen::VectorXd temp = pseudo_inverse_J_t.topLeftCorner(7,3) * (- 3.0 * task_error);
+//   // ctrl_ts_nric.tau_shift = ref_mass_matrix * temp;
+
+//   ctrl_ts_nric.tau_shift = - 3.0 * (ref_cnom_error + ref_act_error);
+//   // ctrl_ts_nric.tau_shift = - 10.0 * ref_act_error;
+//   ctrl_ts_nric.tau_shift.setZero();
+
+//   std::cout << "tau_shift" << std::endl;
+//   for(int i=0 ; i<7 ; ++i){
+//     std::cout << ctrl_ts_nric.tau_shift(i) << std::endl;
+//   } 
+//   std::cout << "\n" <<std::endl;
+// }
 
 void SwitchControllerNode::PublishJointState(){
   sensor_msgs::JointState msg;
@@ -312,11 +346,10 @@ void SwitchControllerNode::PublishNominalEEPose(){
 void SwitchControllerNode::PublishENR(){
   std_msgs::Float64MultiArray msg;
   msg.data.clear();
-  RobotState7 state = robot->ReadState();
-  Eigen::VectorXd nom_q = ctrl_ts_nric.GetNominalConfig();
+  std::array<double, 7> enr_data {ctrl_ts_nric.GetENR()};
 
   for (int i=0;i<7;i++){
-    msg.data.push_back(nom_q(i) - state.q[i]);
+    msg.data.push_back(enr_data[i]);
   }
   enr_pub.publish(msg);
 }
@@ -400,6 +433,17 @@ void SwitchControllerNode::PublishEEPose(){
   msg.pose.orientation.z = orientation.z();
   msg.pose.orientation.w = orientation.w();
   ee_pose_pub.publish(msg);
+}
+
+void SwitchControllerNode::PublishJacobian(){
+  std_msgs::Float64MultiArray msg;
+  msg.data.clear();
+
+  Jacobian7 jacobian = robot->GetBodyJacobian();
+  for (int i=0;i<42;i++){
+    msg.data.push_back(jacobian[i]);
+  }
+  jacobian_pub.publish(msg);
 }
 
 void SwitchControllerNode::SetControllerROSWrapper(int ctrl_mode){
@@ -487,7 +531,7 @@ int main(int argc, char **argv){
       n.PublishTauATask();
       n.PublishTauAJoint();
       n.PublishTauCTask();
-      n.PublishTauDiffTask();
+      n.PublishJacobian();
     }
 
     if (n.IsStoppedByError()){

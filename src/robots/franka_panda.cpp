@@ -60,11 +60,16 @@ RobotTorque7 Panda::GetCoriolisVector(){
 RobotTorque7 Panda::GetGravityVector(){
   return model.gravity(panda_state_temp);
 }
+
 Jacobian7 Panda::GetTaskJacobian(){
   Jacobian7 jacobian = model.zeroJacobian(franka::Frame::kEndEffector, panda_state_temp);
   return jacobian;
 }
 
+Jacobian7 Panda::GetBodyJacobian(){
+  Jacobian7 b_jacobian = model.bodyJacobian(franka::Frame::kEndEffector, panda_state_temp);
+  return b_jacobian;
+}
 
 Eigen::VectorXd Panda::RequestNominalCoriolisVector(const Eigen::VectorXd& q, const Eigen::VectorXd& dq)
 {    

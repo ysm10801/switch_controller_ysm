@@ -57,6 +57,7 @@ public:
   virtual RobotTorque7 GetCoriolisVector();
   virtual RobotTorque7 GetGravityVector();
   virtual Jacobian7 GetTaskJacobian();
+  virtual Jacobian7 GetBodyJacobian();
 
   virtual Eigen::VectorXd RequestNominalCoriolisVector(const Eigen::VectorXd& q, const Eigen::VectorXd& dq);
   virtual Eigen::VectorXd RequestNominalGravityVector(const Eigen::VectorXd& q);

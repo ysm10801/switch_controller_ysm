@@ -99,6 +99,11 @@ Jacobian7 Robot7::GetTaskJacobian(){
   return jacobian;
 }
 
+Jacobian7 Robot7::GetBodyJacobian(){
+  Jacobian7 b_jacobian;
+  return b_jacobian;
+}
+
 Eigen::VectorXd Robot7::RequestNominalCoriolisVector(const Eigen::VectorXd& q, const Eigen::VectorXd& dq){
   Eigen::VectorXd coriolis;
   return coriolis;

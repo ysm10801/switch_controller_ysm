@@ -46,11 +46,9 @@ Eigen::VectorXd TaskSpaceNRICCtrl::computeTau(const Eigen::VectorXd &nominal_q, 
   Eigen::VectorXd tau_null = - null_proj * (kd_null * nominal_dq);
 
   Eigen::VectorXd e_task_DN = k2 * error_task;
-  // Eigen::VectorXd e_task_DN = k2 * rJf * error_task;
   Eigen::VectorXd edot_task_DN = k1 * nominal_J_t * nominal_dq;
 
   // Compute control torques
-  // Eigen::VectorXd temp = nominal_J_t.transpose() * (-edot_task_DN - e_task_DN);
   Eigen::VectorXd temp = pseudo_inverse_J_t * (-edot_task_DN - e_task_DN);
   tau = nominal_mass_matrix * temp + nominal_coriolis + nominal_gravity + tau_null;
 
@@ -118,15 +116,17 @@ void TaskSpaceNRICCtrl::init(){
   tauA_min.resize(7,1); tauA_min.setZero();
 
   tau_shift.resize(7,1); tau_shift.setZero(); // Updated constraint from node_Callback
+  FT_pred.resize(6,1); FT_pred.setZero(); // Predicted FT from diffusion model
 
   // C-NRIC Initial Condtition
   enr_max << 0.005, 0.005, 0.005, 0.005, 0.005, 0.005, 0.002;
   // enr_max << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0 ;         // almost no constraint
   enr_min = -enr_max;
 
-  // tauA_max << 3.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0;
-  tauA_max << 1.0, 1.0, 1.0, 0.7, 0.7, 0.3, 0.3;
-  // tauA_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.2, 0.2;
+  // tauA_max << 5.0, 5.0, 5.0, 4.0, 4.0, 2.0, 2.0;
+  tauA_max << 3.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0;
+  // tauA_max << 1.0, 1.0, 1.0, 0.7, 0.7, 0.3, 0.3;
+  tauA_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.2, 0.2;
   // tauA_max << 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0 ;         // almost no constraint
   tauA_min = -tauA_max;
 
@@ -155,8 +155,10 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   RobotTorque7 coriolis_array = robot->GetCoriolisVector();
   RobotTorque7 gravity_array = robot->GetGravityVector();
   Jacobian7 jacobian_array = robot->GetTaskJacobian();
+  Jacobian7 jacobian_body_array = robot->GetBodyJacobian();
 
   Eigen::Map<const Eigen::Matrix<double, 6, 7>> jacobian(jacobian_array.data());
+  Eigen::Map<const Eigen::Matrix<double, 6, 7>> jacobian_b(jacobian_body_array.data());
   Eigen::Map<const Eigen::Matrix<double, 7, 7>> mass(mass_array.data());
   Eigen::Map<const Eigen::Matrix<double, 7, 1>> coriolis(coriolis_array.data());
   Eigen::Map<const Eigen::Matrix<double, 7, 1>> gravity(gravity_array.data());
@@ -185,10 +187,12 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   Eigen::MatrixXd nominal_J_t = robot->RequestNominalTaskJacobian(nominal_plant.q);
   nominal_plant.ee_pose = nominal_EE_pose; // for visualization
 
-
   tauC = TaskSpaceNRICCtrl::computeTau(C_nominal_plant.q, C_nominal_plant.dq, EE_pose_d);
 
   tauC_unconst = TaskSpaceNRICCtrl::computeTau(nominal_plant.q, nominal_plant.dq, EE_pose_d);
+
+  // Constraints from predicted FT
+  tau_shift = jacobian_b.transpose() * FT_pred;
 
   // QP for Constraints
 
@@ -201,10 +205,10 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   // h.segment(0, 7) = -1e6 * (enr_min + q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt);    // e_nr Constraints
   // h.segment(7, 7) = 1e6 * (enr_max + q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt);     // e_nr Constraints
-  // h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
-  // h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
-  h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*(tauA_min + tau_shift) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
-  h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*(tauA_max + tau_shift) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
+  h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
+  h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
+  // h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*(tauA_min + tau_shift) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
+  // h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*(tauA_max + tau_shift) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
   h.segment(14, 7) = - ddq_min; 
   h.segment(21, 7) = ddq_max;
 
@@ -238,8 +242,8 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   }
 
   // Update nominal plant
-  C_nominal_plant.ddq = ddq_opt;      //CNRIC
-  // C_nominal_plant.ddq = C_nominal_mass_matrix.inverse()*(tauC - C_nominal_coriolis - C_nominal_gravity);        // NRIC
+  // C_nominal_plant.ddq = ddq_opt;      //CNRIC
+  C_nominal_plant.ddq = C_nominal_mass_matrix.inverse()*(tauC - C_nominal_coriolis - C_nominal_gravity);        // NRIC
   C_nominal_plant.dq += C_nominal_plant.ddq * dt;
   C_nominal_plant.q += C_nominal_plant.dq * dt;
   C_nominal_EE_pose = robot->RequestNominalEEPose(C_nominal_plant.q);
@@ -368,25 +372,20 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
     // output[i] = tauC_panda[i];
   }
 
-  // Eigen::VectorXd tauA_t = pseudo_inverse_J_t_trans * tauA;
-  Eigen::VectorXd tauC_t = tauA;
   Eigen::VectorXd tauA_t = temp_a;
   /// TODO: TAU_A JOINT : ONLT E_RN  OR  TAU_A(E_RN + E_DOT_RN)
   // Eigen::VectorXd tauA_j = s_vector;
-  Eigen::VectorXd tauA_j = e_RN;
+  Eigen::VectorXd tauA_j = tauA;
+  Eigen::VectorXd enr = -e_RN;
 
   for(int i ; i < 6 ; i++){
     tau_A_t[i] = tauA_t(i);
-    tau_C_t[i] = tauC_t(i);
   }
   
   for(int i ; i < 7 ; i++){
     tau_A_j[i] = tauA_j(i);
+    e_nr[i] = enr(i);
   }
-  
-  tau_A_t_lpf.process(tau_A_t, tau_A_t_filtered);
-  tau_A_j_lpf.process(tau_A_j, tau_A_j_filtered);
-  tau_C_t_lpf.process(tau_C_t, tau_C_t_filtered);
 
   // output = {0};
 

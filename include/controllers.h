@@ -56,12 +56,9 @@ private:
   std::array<double, 7> kd_null_vec;
   std::array<double, 6> tau_A_t;
   std::array<double, 7> tau_A_j;
+  std::array<double, 7> e_nr;
   std::array<double, 6> tau_C_t;
   std::array<double, 6> tau_diff;
-  std::array<double, 6> tau_A_t_filtered;
-  std::array<double, 7> tau_A_j_filtered;
-  std::array<double, 6> tau_C_t_filtered;
-  std::array<double, 6> tau_diff_filtered;
   int exit_code = 0;
   int qp_norm_cond = 0;
 
@@ -91,10 +88,6 @@ public:
   Eigen::MatrixXd gamma;
   Eigen::MatrixXd reflected_inertia;
   Eigen::MatrixXd kd_null;
-  BilinearLPF tau_A_t_lpf = BilinearLPF(1000, 50);
-  BilinearLPF7 tau_A_j_lpf = BilinearLPF7(1000, 50);
-  BilinearLPF tau_C_t_lpf = BilinearLPF(1000, 50);
-  BilinearLPF tau_diff_lpf = BilinearLPF(1000, 50);
 
   QP *myQP;
   Eigen::VectorXd ddq_opt;
@@ -116,6 +109,7 @@ public:
   Eigen::VectorXd tauA_max;
   Eigen::VectorXd tauA_min;
 
+  Eigen::VectorXd FT_pred;
   Eigen::VectorXd tau_shift;
 
   Eigen::MatrixXd temp_L;
@@ -166,10 +160,11 @@ public:
   Eigen::VectorXd GetNominalJointVel() {return nominal_plant.dq;};
   int GetQPExitCode() {return exit_code;};
   int GetQPNormCond() {return qp_norm_cond;};
-  std::array<double, 6> GetTauATask() {return tau_A_t_filtered;};
-  std::array<double, 7> GetTauAJoint() {return tau_A_j_filtered;};
-  std::array<double, 6> GetTauCTask() {return tau_C_t_filtered;};
-  std::array<double, 6> GetTauDiffTask() {return tau_diff_filtered;};
+  std::array<double, 6> GetTauATask() {return tau_A_t;};
+  std::array<double, 7> GetTauAJoint() {return tau_A_j;};
+  std::array<double, 7> GetENR() {return e_nr;};
+  std::array<double, 6> GetTauCTask() {return tau_C_t;};
+  std::array<double, 6> GetTauDiffTask() {return tau_diff;};
 
   Eigen::VectorXd computeTau(const Eigen::VectorXd &nominal_q, const Eigen::VectorXd &nominal_dq, const Eigen::Affine3d &EE_pose_d);
   
