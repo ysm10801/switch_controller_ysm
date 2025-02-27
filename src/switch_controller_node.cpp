@@ -31,6 +31,7 @@ private:
   ros::Publisher tau_diff_pub;
   ros::Publisher QP_checker_pub;
   ros::Publisher jacobian_pub;  // Real robot's body jacobian for FT sensor to joint torque
+  ros::Publisher joint_torque_pub;
 
   ros::Subscriber ee_pose_d_sub;
   ros::Subscriber pred_force_sub;
@@ -85,6 +86,7 @@ public:
   void PublishTauCTask();
   void PublishTauDiffTask();
   void PublishJacobian();
+  void PublishJointTorque();
   void Callback_ee_pose_d(const geometry_msgs::PoseStamped::ConstPtr& msg);
   void Callback_pred_force(const std_msgs::Float64MultiArray::ConstPtr& msg);
   // void Callback_tau_const(const std_msgs::Float64MultiArray::ConstPtr& msg);
@@ -108,6 +110,7 @@ SwitchControllerNode::SwitchControllerNode(Robot7 *robot_ptr)
   tau_C_pub = n.advertise<std_msgs::Float64MultiArray>("tau_C", 1);
   tau_diff_pub = n.advertise<std_msgs::Float64MultiArray>("tau_diff", 1);
   jacobian_pub = n.advertise<std_msgs::Float64MultiArray>("jacobian", 1);
+  joint_torque_pub = n.advertise<std_msgs::Float64MultiArray>("joint_torque", 1);
   ee_pose_d_sub = n.subscribe("ee_pose_d", 1, &SwitchControllerNode::Callback_ee_pose_d, this);
   pred_force_sub = n.subscribe("pred_force", 1, &SwitchControllerNode::Callback_pred_force, this);
   // pred_pose_tauA_sub = n.subscribe("pred_pose_force", 1, &SwitchControllerNode::Callback_tau_const, this);
@@ -295,6 +298,16 @@ void SwitchControllerNode::Callback_pred_force(const std_msgs::Float64MultiArray
 //   std::cout << "\n" <<std::endl;
 // }
 
+void SwitchControllerNode::PublishJointTorque(){
+  std_msgs::Float64MultiArray msg;
+  RobotState7 state = robot->ReadState();
+
+  for (int i=0;i<7;i++){
+    msg.data.push_back(state.tau[i] - robot->GetGravityVector()[i]);
+  }
+  joint_torque_pub.publish(msg);
+}
+
 void SwitchControllerNode::PublishJointState(){
   sensor_msgs::JointState msg;
   RobotState7 state = robot->ReadState();
@@ -394,8 +407,8 @@ void SwitchControllerNode::PublishTauCTask(){
   std_msgs::Float64MultiArray msg;
   msg.data.clear();
 
-  std::array<double, 6> tau_task {ctrl_ts_nric.GetTauCTask()};
-  for (size_t i = 0; i < 6; i++){
+  std::array<double, 7> tau_task {ctrl_ts_nric.GetTauCTask()};
+  for (size_t i = 0; i < 7; i++){
     msg.data.push_back(tau_task[i]);
   }
   
@@ -523,6 +536,7 @@ int main(int argc, char **argv){
   while(ros::ok() && isRunning){
     if (robot.CheckNewDataAndUse()){
       n.PublishEEPose();
+      n.PublishJointTorque();
       n.PublishJointState();
       n.PublishNominalEEPose();
       n.PublishENR();

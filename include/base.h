@@ -12,6 +12,7 @@
 #include <iterator>
 #include <Eigen/Dense>
 #include <Eigen/Core>
+#include <Eigen/SVD>
 #include <vector>
 #include <condition_variable>
 #include <boost/function.hpp>

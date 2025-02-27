@@ -57,7 +57,7 @@ private:
   std::array<double, 6> tau_A_t;
   std::array<double, 7> tau_A_j;
   std::array<double, 7> e_nr;
-  std::array<double, 6> tau_C_t;
+  std::array<double, 7> tau_C_t;
   std::array<double, 6> tau_diff;
   int exit_code = 0;
   int qp_norm_cond = 0;
@@ -91,7 +91,8 @@ public:
 
   QP *myQP;
   Eigen::VectorXd ddq_opt;
-  Eigen::VectorXd ddq_mu;
+  Eigen::VectorXd lambda_opt;
+  Eigen::VectorXd ddq_lambda_st;
   Eigen::VectorXd mu_st;
   Eigen::VectorXd ddq_diff; 
   
@@ -155,18 +156,19 @@ public:
   std::array<double, 7>  GetKi() {return Ki_vec;};
   std::array<double, 7>  GetGamma() {return gamma_vec;};
   std::array<double, 7>  GetReflectedInertia() {return reflected_inertia_vec;};
-  Eigen::Affine3d GetNominalEEPose() {return nominal_plant.ee_pose;};
-  Eigen::VectorXd GetNominalConfig() {return nominal_plant.q;};
-  Eigen::VectorXd GetNominalJointVel() {return nominal_plant.dq;};
+  Eigen::Affine3d GetNominalEEPose() {return C_nominal_plant.ee_pose;};
+  Eigen::VectorXd GetNominalConfig() {return C_nominal_plant.q;};
+  Eigen::VectorXd GetNominalJointVel() {return C_nominal_plant.dq;};
   int GetQPExitCode() {return exit_code;};
   int GetQPNormCond() {return qp_norm_cond;};
   std::array<double, 6> GetTauATask() {return tau_A_t;};
   std::array<double, 7> GetTauAJoint() {return tau_A_j;};
   std::array<double, 7> GetENR() {return e_nr;};
-  std::array<double, 6> GetTauCTask() {return tau_C_t;};
+  std::array<double, 7> GetTauCTask() {return tau_C_t;};
   std::array<double, 6> GetTauDiffTask() {return tau_diff;};
 
   Eigen::VectorXd computeTau(const Eigen::VectorXd &nominal_q, const Eigen::VectorXd &nominal_dq, const Eigen::Affine3d &EE_pose_d);
+  Eigen::MatrixXd computePseudoInverse(const Eigen::MatrixXd& A, double tolerance);
   
   void init();
   RobotTorque7 loop(const RobotState7 &robot_state);
