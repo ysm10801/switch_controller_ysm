@@ -6,19 +6,6 @@ namespace switch_controller{
  * task space NRIC controller
  * *******************************/
 
-Eigen::MatrixXd TaskSpaceNRICCtrl::computePseudoInverse(const Eigen::MatrixXd& A, double tolerance = 1e-6) {
-  Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
-  double tol = tolerance * std::max(A.cols(), A.rows()) * svd.singularValues().array().abs().maxCoeff();
-  Eigen::VectorXd singularValues_inv = svd.singularValues();
-  for (int i = 0; i < singularValues_inv.size(); ++i) {
-      if (singularValues_inv(i) > tol)
-          singularValues_inv(i) = 1.0 / singularValues_inv(i);
-      else
-          singularValues_inv(i) = 0;
-  }
-  return svd.matrixV() * singularValues_inv.asDiagonal() * svd.matrixU().transpose();
-}
-
 Eigen::VectorXd TaskSpaceNRICCtrl::computeTau(const Eigen::VectorXd &nominal_q, const Eigen::VectorXd &nominal_dq, const Eigen::Affine3d &EE_pose_d){
   // Nominal Robot M,c,g
   Eigen::MatrixXd nominal_mass_matrix = robot->RequestNominalMassMatrix(nominal_q) + reflected_inertia;
@@ -28,14 +15,6 @@ Eigen::VectorXd TaskSpaceNRICCtrl::computeTau(const Eigen::VectorXd &nominal_q, 
   Eigen::Affine3d nominal_EE_pose = robot->RequestNominalEEPose(nominal_q);
   nominal_plant.ee_pose = nominal_EE_pose; // for visualization
 
-  //J_task for input
-  // Eigen::MatrixXd nominal_J_t(6,7); nominal_J_t.setZero();
-  // Eigen::MatrixXd pseudo_inverse_J_t(7,6); pseudo_inverse_J_t.setZero();
-
-  //J_task for input
-  Eigen::MatrixXd nominal_J_t = robot->RequestNominalTaskJacobian(nominal_q);
-  Eigen::MatrixXd pseudo_inverse_J_t = nominal_J_t.transpose() * (nominal_J_t * nominal_J_t.transpose()).inverse();
-  // Eigen::MatrixXd pseudo_inverse_J_t = TaskSpaceNRICCtrl::computePseudoInverse(nominal_J_t);
   Eigen::VectorXd tau(7); tau.setZero();
 
   Eigen::Vector3d nominal_EE_trans(nominal_EE_pose.translation());
@@ -56,6 +35,11 @@ Eigen::VectorXd TaskSpaceNRICCtrl::computeTau(const Eigen::VectorXd &nominal_q, 
   Eigen::Matrix<double, 6, 1> error_task; error_task.setZero();
   error_task.head<3>() = nominal_EE_trans - EE_trans_d;
   error_task.tail<3>() = error_rot;
+
+  //J_task for input
+  Eigen::MatrixXd nominal_J_t = robot->RequestNominalTaskJacobian(nominal_q);
+  Eigen::MatrixXd pseudo_inverse_J_t = nominal_J_t.transpose() * 
+    (nominal_J_t * nominal_J_t.transpose()).inverse();
 
   //null-space control
   Eigen::MatrixXd null_proj = Eigen::MatrixXd::Identity(7, 7) - pseudo_inverse_J_t * nominal_J_t;
@@ -121,14 +105,14 @@ void TaskSpaceNRICCtrl::init(){
   mu_st.resize(28,1); mu_st.setZero();
   ddq_diff.resize(7,1); ddq_diff.setZero();
 
-  P.resize(7,7); P.setZero(); 
-  c.resize(7,1); c.setZero();
-  G.resize(28,7); G.setZero();
-  h.resize(28,1); h.setZero();
-  // P.resize(14,14); P.setZero(); 
-  // c.resize(14,1); c.setZero();
-  // G.resize(28,14); G.setZero();
+  // P.resize(7,7); P.setZero(); 
+  // c.resize(7,1); c.setZero();
+  // G.resize(28,7); G.setZero();
   // h.resize(28,1); h.setZero();
+  P.resize(14,14); P.setZero(); 
+  c.resize(14,1); c.setZero();
+  G.resize(28,14); G.setZero();
+  h.resize(28,1); h.setZero();
   
   enr_max.resize(7,1); enr_max.setZero();
   enr_min.resize(7,1); enr_min.setZero();
@@ -136,6 +120,10 @@ void TaskSpaceNRICCtrl::init(){
   tauA_min.resize(7,1); tauA_min.setZero();
   phi_n_max.resize(7,1); phi_n_max.setZero();
   phi_n_min.resize(7,1); phi_n_min.setZero();
+  ddq_max.resize(7,1); ddq_max.setZero();
+  ddq_min.resize(7,1); ddq_min.setZero();
+  lambda_max.resize(7,1); lambda_max.setZero();
+  lambda_min.resize(7,1); lambda_min.setZero();
 
   tau_shift.resize(7,1); tau_shift.setZero(); // Updated constraint from node_Callback
   FT_pred.resize(6,1); FT_pred.setZero(); // Predicted FT from diffusion model
@@ -153,9 +141,17 @@ void TaskSpaceNRICCtrl::init(){
   // tauA_max << 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0 ;         // almost no constraint
   tauA_min = -tauA_max;
 
-  ddq_max << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
-  // ddq_max << 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0;   // almost no constraint
+  ddq_max << 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0;
   ddq_min = -ddq_max;
+
+  lambda_max << 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0;
+  lambda_min = -lambda_max;
+
+  // phi_n_max << 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0;
+  // phi_n_max << 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0;
+  phi_n_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.4, 0.4;
+  // phi_n_max << 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0;
+  phi_n_min = -phi_n_max;
 
   temp_L.resize(7,7); temp_L.setZero();
   temp_gain.resize(7,7); temp_gain.setZero();
@@ -214,18 +210,14 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   tauC = TaskSpaceNRICCtrl::computeTau(C_nominal_plant.q, C_nominal_plant.dq, EE_pose_d);
 
-  std::cout << "initial_tauC: " << tauC.transpose() << std::endl;
-
   tauC_unconst = TaskSpaceNRICCtrl::computeTau(nominal_plant.q, nominal_plant.dq, EE_pose_d);
 
-  // Eigen::MatrixXd pseudo_inverse_J_t(7,6); pseudo_inverse_J_t.setZero(); 
-  // Eigen::MatrixXd pseudo_inverse_J_t = C_nominal_J_t.transpose() * (C_nominal_J_t * C_nominal_J_t.transpose() + 1e-6 * Eigen::MatrixXd::Identity(C_nominal_J_t.rows(), C_nominal_J_t.rows())).inverse();
-  Eigen::MatrixXd pseudo_inverse_J_t = TaskSpaceNRICCtrl::computePseudoInverse(C_nominal_J_t);
-
+  Eigen::MatrixXd pseudo_inverse_J_t = C_nominal_J_t.transpose() * 
+  (C_nominal_J_t * C_nominal_J_t.transpose()).inverse();
+  
   std::cout << "pseudo_inverse_J_t: " << std::endl;
-  std::cout << pseudo_inverse_J_t.rows()<< " " << pseudo_inverse_J_t.cols() << std::endl;
-  for (int i = 0; i < pseudo_inverse_J_t.rows(); i++){
-    for (int k = 0; k < pseudo_inverse_J_t.cols(); k++){
+  for (int i = 0; i < 7; i++){
+    for (int k = 0; k < 6; k++){
       std::cout << pseudo_inverse_J_t(i,k) << " ";
     }
     std::cout << std::endl;
@@ -241,68 +233,88 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   // QP for Constraints
 
-  // P.setZero(); c.setZero(); G.setZero(); h.setZero();
+  P.setZero(); c.setZero(); G.setZero(); h.setZero();
 
-  // double alpha = 0;
+  double alpha = 1e-2;
 
-  // Eigen::MatrixXd A(14,14); A.setZero();
-  // Eigen::VectorXd b(14); b.setZero();
-  // Eigen::MatrixXd W(14,14); W.setZero();
+  Eigen::MatrixXd A(14,14); A.setZero();
+  Eigen::VectorXd b(14); b.setZero();
+  Eigen::MatrixXd W(14,14); W.setZero();
 
-  // A.block(0,0,7,7) = Eigen::MatrixXd::Identity(7,7);
-  // A.block(7,7,7,7) = Eigen::MatrixXd::Identity(7,7);
-  // A.block(0,7,7,7) = diag_phi_n;
+  A.block(0,0,7,7) = Eigen::MatrixXd::Identity(7,7);
+  A.block(7,7,7,7) = Eigen::MatrixXd::Identity(7,7);
+  A.block(0,7,7,7) = diag_phi_n;
 
-  // b.segment(0,7) = phi_n; // ==q_ddot free
+  b.segment(0,7) = phi_n; // ==q_ddot free
 
-  // W.block(0,0,7,7) = C_nominal_mass_matrix;
-  // W.block(7,7,7,7) = alpha * Eigen::MatrixXd::Identity(nv, nv);
+  W.block(0,0,7,7) = C_nominal_mass_matrix;
+  W.block(7,7,7,7) = alpha * Eigen::MatrixXd::Identity(nv, nv);
 
-  // // P.block(0, 0, 7, 7) = C_nominal_mass_matrix;
-  // // P.block(0, 7, 7, 7) = C_nominal_mass_matrix * diag_phi_n;
-  // // P.block(7, 0, 7, 7) = diag_phi_n * C_nominal_mass_matrix;
-  // // P.block(7, 7, 7, 7) = diag_phi_n * C_nominal_mass_matrix * diag_phi_n + alpha * Eigen::MatrixXd::Identity(nv, nv);
+  // P.block(0, 0, 7, 7) = C_nominal_mass_matrix;
+  // P.block(0, 7, 7, 7) = C_nominal_mass_matrix * diag_phi_n;
+  // P.block(7, 0, 7, 7) = diag_phi_n * C_nominal_mass_matrix;
+  // P.block(7, 7, 7, 7) = diag_phi_n * C_nominal_mass_matrix * diag_phi_n + alpha * Eigen::MatrixXd::Identity(nv, nv);
 
-  // // c.segment(0, 7) = - (C_nominal_mass_matrix * phi_n);
-  // // c.segment(7, 7) = - (diag_phi_n * C_nominal_mass_matrix * phi_n);
-  // P = A.transpose() * W * A;
-  // c = - A.transpose() * W * b;
+  // c.segment(0, 7) = - (C_nominal_mass_matrix * phi_n);
+  // c.segment(7, 7) = - (diag_phi_n * C_nominal_mass_matrix * phi_n);
+  P = A.transpose() * W * A;
+  c = - A.transpose() * W * b;
 
-  // G.block(0, 0, 7, 7) = - Eigen::MatrixXd::Identity(nv, nv);
-  // G.block(7, 0, 7, 7) = Eigen::MatrixXd::Identity(nv, nv);
-  // G.block(14, 7, 7, 7) = - diag_phi_n;
-  // G.block(21, 7, 7, 7) = diag_phi_n;
+  G.block(0, 0, 7, 7) = - Eigen::MatrixXd::Identity(nv, nv);
+  G.block(7, 0, 7, 7) = Eigen::MatrixXd::Identity(nv, nv);
+  G.block(14, 7, 7, 7) = - diag_phi_n;
+  G.block(21, 7, 7, 7) = diag_phi_n;
   
-  // h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
-  // h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
-  // h.segment(14, 7) = - (phi_n - phi_n_max);   // phi_n Constraitns
-  // h.segment(21, 7) = phi_n - phi_n_min;     // phi_n Constraitns
+  h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
+  h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
+  h.segment(14, 7) = - (phi_n - phi_n_max);   // phi_n Constraitns
+  h.segment(21, 7) = phi_n - phi_n_min;     // phi_n Constraitns
+
+  std::cout << "P: " << std::endl;
+  for (int i = 0; i < 14; i++){
+    for (int k = 0; k < 14; k++){
+      std::cout << P(i,k) << " ";
+    }
+    std::cout << std::endl;
+  }
+
+  std::cout << "c: " << c.transpose() << std::endl;
+  
+  std::cout << "G: " << std::endl;
+  for (int i = 0; i < 28; i++){
+    for (int k = 0; k < 14; k++){
+      std::cout << G(i,k) << " ";
+    }
+    std::cout << std::endl;
+  }
+
+  std::cout << "h: " << h.transpose() << std::endl;
   
   // QP for Constraints
 
-  P = C_nominal_mass_matrix;
-  c = - (tauC - C_nominal_coriolis - C_nominal_gravity);
-  G.block(0, 0, 7, 7) = - Eigen::MatrixXd::Identity(nv, nv);
-  G.block(7, 0, 7, 7) = Eigen::MatrixXd::Identity(nv, nv);
-  G.block(14, 0, 7, 7) = - Eigen::MatrixXd::Identity(nv, nv);
-  G.block(21, 0, 7, 7) = Eigen::MatrixXd::Identity(nv, nv);
+  // P = C_nominal_mass_matrix;
+  // c = - (tauC - C_nominal_coriolis - C_nominal_gravity);
+  // G.block(0, 0, 7, 7) = - Eigen::MatrixXd::Identity(nv, nv);
+  // G.block(7, 0, 7, 7) = Eigen::MatrixXd::Identity(nv, nv);
+  // G.block(14, 0, 7, 7) = - Eigen::MatrixXd::Identity(nv, nv);
+  // G.block(21, 0, 7, 7) = Eigen::MatrixXd::Identity(nv, nv);
 
   // h.segment(0, 7) = -1e6 * (enr_min + q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt);    // e_nr Constraints
   // h.segment(7, 7) = 1e6 * (enr_max + q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt);     // e_nr Constraints
-  h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
-  h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
+  // h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
+  // h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
   // h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*(tauA_min + tau_shift) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
   // h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*(tauA_max + tau_shift) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
   // h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*(tauA_min + tau_shift_min) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
   // h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*(tauA_max + tau_shift_max) + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
-  h.segment(14, 7) = - ddq_min; 
-  h.segment(21, 7) = ddq_max;
+  // h.segment(14, 7) = - ddq_min; 
+  // h.segment(21, 7) = ddq_max;
 
   myQP = QP_SETUP_dense(n_, m_, p_, P.data(), NULL, G.data(), c.data(), h.data(), NULL, NULL, COLUMN_MAJOR_ORDERING);
 
-  myQP->options->maxit = 50;
-  myQP->options->reltol = 1e-4;
-  myQP->options->abstol = 1e-4;
+  myQP->options->maxit = 40;
+  myQP->options->reltol = 1e-2;
+  myQP->options->abstol = 1e-2;
 
   qp_int ExitCode = QP_SOLVE(myQP);
 

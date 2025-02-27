@@ -104,8 +104,14 @@ public:
   Eigen::VectorXd enr_max;
   Eigen::VectorXd enr_min;
 
+  Eigen::VectorXd phi_n_max;
+  Eigen::VectorXd phi_n_min;
+
   Eigen::VectorXd ddq_max;
   Eigen::VectorXd ddq_min;
+
+  Eigen::VectorXd lambda_max;
+  Eigen::VectorXd lambda_min;
 
   Eigen::VectorXd tauA_max;
   Eigen::VectorXd tauA_min;
@@ -168,7 +174,6 @@ public:
   std::array<double, 6> GetTauDiffTask() {return tau_diff;};
 
   Eigen::VectorXd computeTau(const Eigen::VectorXd &nominal_q, const Eigen::VectorXd &nominal_dq, const Eigen::Affine3d &EE_pose_d);
-  Eigen::MatrixXd computePseudoInverse(const Eigen::MatrixXd& A, double tolerance);
   
   void init();
   RobotTorque7 loop(const RobotState7 &robot_state);
