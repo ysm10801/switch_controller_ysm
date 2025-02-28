@@ -133,10 +133,10 @@ void TaskSpaceNRICCtrl::init(){
   // enr_max << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0 ;         // almost no constraint
   enr_min = -enr_max;
 
-  tauA_max << 15.0, 15.0, 8.0, 8.0, 8.0, 2.0, 2.0;
+  // tauA_max << 15.0, 15.0, 8.0, 8.0, 8.0, 2.0, 2.0;
   // tauA_max << 3.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0;
   // tauA_max << 1.0, 1.0, 1.0, 0.6, 0.6, 0.4, 0.4;
-  // tauA_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.2, 0.2;
+  tauA_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.2, 0.2;
   // tauA_max << 0.1, 0.1, 0.1, 0.07, 0.07, 0.04, 0.04;
   // tauA_max << 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0 ;         // almost no constraint
   tauA_min = -tauA_max;
@@ -145,11 +145,11 @@ void TaskSpaceNRICCtrl::init(){
   ddq_min = -ddq_max;
 
   lambda_max << 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0;
-  lambda_min = -lambda_max;
+  lambda_min << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
   // phi_n_max << 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0;
   // phi_n_max << 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0;
-  phi_n_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.4, 0.4;
+  phi_n_max << 0.05, 0.05, 0.05, 0.03, 0.03, 0.04, 0.04;
   // phi_n_max << 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0;
   phi_n_min = -phi_n_max;
 
@@ -222,11 +222,12 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
     }
     std::cout << std::endl;
   }
+
   //null-space control
   Eigen::MatrixXd null_proj = Eigen::MatrixXd::Identity(7, 7) - pseudo_inverse_J_t * C_nominal_J_t;
   Eigen::VectorXd tau_null = - null_proj * (kd_null * C_nominal_plant.dq);
 
-  phi_n = C_nominal_mass_matrix.inverse() * (tauC - C_nominal_coriolis - C_nominal_gravity - tau_null) + 1e-10 * Eigen::VectorXd::Ones(nv);
+  phi_n =  C_nominal_mass_matrix.inverse() * (tauC - C_nominal_coriolis - C_nominal_gravity - tau_null) + 1e-10 * Eigen::VectorXd::Ones(nv);
   diag_phi_n = phi_n.asDiagonal();
 
   std::cout << "phi_n: " << phi_n.transpose() << std::endl;
@@ -235,7 +236,7 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   P.setZero(); c.setZero(); G.setZero(); h.setZero();
 
-  double alpha = 1e-2;
+  double alpha = 1e4;
 
   Eigen::MatrixXd A(14,14); A.setZero();
   Eigen::VectorXd b(14); b.setZero();
@@ -262,13 +263,13 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   G.block(0, 0, 7, 7) = - Eigen::MatrixXd::Identity(nv, nv);
   G.block(7, 0, 7, 7) = Eigen::MatrixXd::Identity(nv, nv);
-  G.block(14, 7, 7, 7) = - diag_phi_n;
-  G.block(21, 7, 7, 7) = diag_phi_n;
+  G.block(14, 7, 7, 7) = - Eigen::MatrixXd::Identity(nv, nv);
+  G.block(21, 7, 7, 7) = Eigen::MatrixXd::Identity(nv, nv);
   
   h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
   h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
-  h.segment(14, 7) = - (phi_n - phi_n_max);   // phi_n Constraitns
-  h.segment(21, 7) = phi_n - phi_n_min;     // phi_n Constraitns
+  h.segment(14, 7) = - diag_phi_n.inverse() * (phi_n - phi_n_max);   // phi_n Constraitns
+  h.segment(21, 7) = diag_phi_n.inverse() * (phi_n - phi_n_min);     // phi_n Constraitns
 
   std::cout << "P: " << std::endl;
   for (int i = 0; i < 14; i++){
@@ -279,7 +280,7 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   }
 
   std::cout << "c: " << c.transpose() << std::endl;
-  
+
   std::cout << "G: " << std::endl;
   for (int i = 0; i < 28; i++){
     for (int k = 0; k < 14; k++){
@@ -287,7 +288,7 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
     }
     std::cout << std::endl;
   }
-
+  
   std::cout << "h: " << h.transpose() << std::endl;
   
   // QP for Constraints
@@ -313,8 +314,8 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   myQP = QP_SETUP_dense(n_, m_, p_, P.data(), NULL, G.data(), c.data(), h.data(), NULL, NULL, COLUMN_MAJOR_ORDERING);
 
   myQP->options->maxit = 40;
-  myQP->options->reltol = 1e-2;
-  myQP->options->abstol = 1e-2;
+  myQP->options->reltol = 1e-3;
+  myQP->options->abstol = 1e-3;
 
   qp_int ExitCode = QP_SOLVE(myQP);
 
