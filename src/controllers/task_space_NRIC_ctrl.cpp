@@ -109,10 +109,16 @@ void TaskSpaceNRICCtrl::init(){
   // c.resize(7,1); c.setZero();
   // G.resize(28,7); G.setZero();
   // h.resize(28,1); h.setZero();
+  
   P.resize(14,14); P.setZero(); 
   c.resize(14,1); c.setZero();
   G.resize(28,14); G.setZero();
   h.resize(28,1); h.setZero();
+  
+  // P.resize(14,14); P.setZero(); 
+  // c.resize(14,1); c.setZero();
+  // G.resize(56,14); G.setZero();
+  // h.resize(56,1); h.setZero();
   
   enr_max.resize(7,1); enr_max.setZero();
   enr_min.resize(7,1); enr_min.setZero();
@@ -135,13 +141,13 @@ void TaskSpaceNRICCtrl::init(){
 
   // tauA_max << 15.0, 15.0, 8.0, 8.0, 8.0, 2.0, 2.0;
   // tauA_max << 3.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0;
-  // tauA_max << 1.0, 1.0, 1.0, 0.6, 0.6, 0.4, 0.4;
-  tauA_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.2, 0.2;
+  tauA_max << 1.0, 1.0, 1.0, 0.6, 0.6, 0.4, 0.4;
+  // tauA_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.2, 0.2;
   // tauA_max << 0.1, 0.1, 0.1, 0.07, 0.07, 0.04, 0.04;
   // tauA_max << 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0 ;         // almost no constraint
   tauA_min = -tauA_max;
 
-  ddq_max << 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0;
+  ddq_max << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
   ddq_min = -ddq_max;
 
   lambda_max << 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0;
@@ -149,7 +155,8 @@ void TaskSpaceNRICCtrl::init(){
 
   // phi_n_max << 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0;
   // phi_n_max << 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0;
-  phi_n_max << 0.05, 0.05, 0.05, 0.03, 0.03, 0.04, 0.04;
+  phi_n_max << 0.5, 0.5, 0.5, 0.4, 0.4, 0.5, 0.5;
+  // phi_n_max << 0.05, 0.05, 0.05, 0.03, 0.03, 0.04, 0.04;
   // phi_n_max << 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0;
   phi_n_min = -phi_n_max;
 
@@ -215,28 +222,44 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   Eigen::MatrixXd pseudo_inverse_J_t = C_nominal_J_t.transpose() * 
   (C_nominal_J_t * C_nominal_J_t.transpose()).inverse();
   
-  std::cout << "pseudo_inverse_J_t: " << std::endl;
-  for (int i = 0; i < 7; i++){
-    for (int k = 0; k < 6; k++){
-      std::cout << pseudo_inverse_J_t(i,k) << " ";
-    }
-    std::cout << std::endl;
-  }
+  // std::cout << "pseudo_inverse_J_t: " << std::endl;
+  // for (int i = 0; i < 7; i++){
+  //   for (int k = 0; k < 6; k++){
+  //     std::cout << pseudo_inverse_J_t(i,k) << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
 
   //null-space control
   Eigen::MatrixXd null_proj = Eigen::MatrixXd::Identity(7, 7) - pseudo_inverse_J_t * C_nominal_J_t;
   Eigen::VectorXd tau_null = - null_proj * (kd_null * C_nominal_plant.dq);
 
-  phi_n =  C_nominal_mass_matrix.inverse() * (tauC - C_nominal_coriolis - C_nominal_gravity - tau_null) + 1e-10 * Eigen::VectorXd::Ones(nv);
+  phi_n =  C_nominal_mass_matrix.inverse() * (tauC - C_nominal_coriolis - C_nominal_gravity - tau_null);
   diag_phi_n = phi_n.asDiagonal();
 
-  std::cout << "phi_n: " << phi_n.transpose() << std::endl;
+  // std::cout << "phi_n: " << phi_n.transpose() << std::endl;
+
+  // std::cout<< "diag_phi_n: " << std::endl;
+  // for (int i = 0; i < 7; i++){
+  //   for (int k = 0; k < 7; k++){
+  //     std::cout << diag_phi_n(i,k) << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
+  
+  // std::cout<< "diag_phi_n inverse: " << std::endl;
+  // for (int i = 0; i < 7; i++){
+  //   for (int k = 0; k < 7; k++){
+  //     std::cout << diag_phi_n.inverse()(i,k) << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
 
   // QP for Constraints
 
   P.setZero(); c.setZero(); G.setZero(); h.setZero();
 
-  double alpha = 1e4;
+  double alpha = 10;
 
   Eigen::MatrixXd A(14,14); A.setZero();
   Eigen::VectorXd b(14); b.setZero();
@@ -268,28 +291,41 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   
   h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
   h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
-  h.segment(14, 7) = - diag_phi_n.inverse() * (phi_n - phi_n_max);   // phi_n Constraitns
-  h.segment(21, 7) = diag_phi_n.inverse() * (phi_n - phi_n_min);     // phi_n Constraitns
 
-  std::cout << "P: " << std::endl;
-  for (int i = 0; i < 14; i++){
-    for (int k = 0; k < 14; k++){
-      std::cout << P(i,k) << " ";
+  Eigen::VectorXd lambda_lower(7);
+  Eigen::VectorXd lambda_upper(7);
+  for (int i = 0; i < 7; i++){
+    if (phi_n(i) > 0) {
+        lambda_lower(i) = 0.0;
+        lambda_upper(i) = 1 - phi_n_min(i) / phi_n(i);
     }
-    std::cout << std::endl;
-  }
-
-  std::cout << "c: " << c.transpose() << std::endl;
-
-  std::cout << "G: " << std::endl;
-  for (int i = 0; i < 28; i++){
-    for (int k = 0; k < 14; k++){
-      std::cout << G(i,k) << " ";
+    else{
+        lambda_lower(i) = 0.0;
+        lambda_upper(i) = 1 - phi_n_max(i) / phi_n(i);
     }
-    std::cout << std::endl;
   }
+  h.segment(14, 7) = -lambda_lower;   // phi_n Constraitns
+  h.segment(21, 7) = lambda_upper;     // phi_n Constraitns
+
+  // std::cout << "P: " << std::endl;
+  // for (int i = 0; i < 14; i++){
+  //   for (int k = 0; k < 14; k++){
+  //     std::cout << P(i,k) << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
+
+  // std::cout << "c: " << c.transpose() << std::endl;
+
+  // std::cout << "G: " << std::endl;
+  // for (int i = 0; i < 56; i++){
+  //   for (int k = 0; k < 14; k++){
+  //     std::cout << G(i,k) << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
   
-  std::cout << "h: " << h.transpose() << std::endl;
+  // std::cout << "h: " << h.transpose() << std::endl;
   
   // QP for Constraints
 
@@ -313,9 +349,9 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   myQP = QP_SETUP_dense(n_, m_, p_, P.data(), NULL, G.data(), c.data(), h.data(), NULL, NULL, COLUMN_MAJOR_ORDERING);
 
-  myQP->options->maxit = 40;
-  myQP->options->reltol = 1e-3;
-  myQP->options->abstol = 1e-3;
+  myQP->options->maxit = 100;
+  myQP->options->reltol = 1e-1;
+  myQP->options->abstol = 1e-1;
 
   qp_int ExitCode = QP_SOLVE(myQP);
 
@@ -340,7 +376,12 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   for(int i=0 ; i<7 ; ++i){
     ddq_opt(i) = myQP->x[i];
-    lambda_opt(i) = myQP->x[i+7];
+    if (std::fabs(myQP->x[i+7]) < 1e-5){
+      lambda_opt(i) = 0;
+    }
+    else{
+      lambda_opt(i) = myQP->x[i+7];
+    }
   }
 
   Eigen::MatrixXd diag_lambda(nv, nv); diag_lambda.setZero();
@@ -358,11 +399,11 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   }
   std::cout << "\n" <<std::endl;
 
-  std::cout << "ddq_lambda_st" << std::endl;
-  for(int i=0 ; i<14 ; ++i){
-    std::cout << ddq_lambda_st(i) <<std::endl;
-  }
-  std::cout << "\n" <<std::endl;
+  // std::cout << "ddq_lambda_st" << std::endl;
+  // for(int i=0 ; i<14 ; ++i){
+  //   std::cout << ddq_lambda_st(i) <<std::endl;
+  // }
+  // std::cout << "\n" <<std::endl;
 
   ddq_diff = ddq_opt - ddq_lambda_st.segment(0,7);
 
@@ -521,7 +562,7 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
     e_nr[i] = enr(i);
   }
 
-  std::cout << "tau_C_t : " << tau_C_t << std::endl;
+  // std::cout << "tau_C_t : " << tau_C_t << std::endl;
   output = {0};
 
   return output;
