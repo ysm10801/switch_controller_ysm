@@ -123,15 +123,15 @@ void TaskSpaceNRICCtrl::init(){
   // enr_max << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0 ;         // almost no constraint
   enr_min = -enr_max;
 
-  // tauA_max << 5.0, 5.0, 5.0, 4.0, 4.0, 2.0, 2.0;
-  tauA_max << 3.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0;
+  tauA_max << 5.0, 5.0, 5.0, 4.0, 4.0, 2.0, 2.0;
+  // tauA_max << 3.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0;
   // tauA_max << 1.0, 1.0, 1.0, 0.7, 0.7, 0.3, 0.3;
-  tauA_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.2, 0.2;
+  // tauA_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.2, 0.2;
   // tauA_max << 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0 ;         // almost no constraint
   tauA_min = -tauA_max;
 
-  ddq_max << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
-  // ddq_max << 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0;   // almost no constraint
+  // ddq_max << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
+  ddq_max << 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0;   // almost no constraint
   ddq_min = -ddq_max;
 
   temp_L.resize(7,7); temp_L.setZero();
@@ -191,8 +191,23 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   tauC_unconst = TaskSpaceNRICCtrl::computeTau(nominal_plant.q, nominal_plant.dq, EE_pose_d);
 
+  // std::cout << "jacobian_b_transpose" << std::endl;
+  // for(int i=0 ; i<7 ; ++i){
+  //   for(int j=0 ; j<6 ; ++j){
+  //     std::cout << jacobian_b.transpose()(i,j) << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
+
   // Constraints from predicted FT
-  tau_shift = jacobian_b.transpose() * FT_pred;
+  tau_shift = jacobian_b.transpose() * FT_pred - (tauC - C_nominal_coriolis - C_nominal_gravity);
+
+  // std::cout << "tau_shift" << std::endl;
+  // for(int i=0 ; i<7 ; ++i){
+  //   std::cout << tau_shift(i) << std::endl;
+  // }
+  // std::cout << "\n" <<std::endl;
+
 
   // QP for Constraints
 
@@ -242,8 +257,8 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   }
 
   // Update nominal plant
-  // C_nominal_plant.ddq = ddq_opt;      //CNRIC
-  C_nominal_plant.ddq = C_nominal_mass_matrix.inverse()*(tauC - C_nominal_coriolis - C_nominal_gravity);        // NRIC
+  C_nominal_plant.ddq = ddq_opt;      //CNRIC
+  // C_nominal_plant.ddq = C_nominal_mass_matrix.inverse()*(tauC - C_nominal_coriolis - C_nominal_gravity);        // NRIC
   C_nominal_plant.dq += C_nominal_plant.ddq * dt;
   C_nominal_plant.q += C_nominal_plant.dq * dt;
   C_nominal_EE_pose = robot->RequestNominalEEPose(C_nominal_plant.q);

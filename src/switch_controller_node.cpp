@@ -106,7 +106,7 @@ SwitchControllerNode::SwitchControllerNode(Robot7 *robot_ptr)
   tau_A_pub = n.advertise<std_msgs::Float64MultiArray>("tau_A", 1);
   tau_A_joint_pub = n.advertise<std_msgs::Float64MultiArray>("tau_A_joint", 1);
   tau_C_pub = n.advertise<std_msgs::Float64MultiArray>("tau_C", 1);
-  tau_diff_pub = n.advertise<std_msgs::Float64MultiArray>("tau_diff", 1);
+  tau_diff_pub = n.advertise<std_msgs::Float64MultiArray>("tau_shift", 1);
   jacobian_pub = n.advertise<std_msgs::Float64MultiArray>("jacobian", 1);
   ee_pose_d_sub = n.subscribe("ee_pose_d", 1, &SwitchControllerNode::Callback_ee_pose_d, this);
   pred_force_sub = n.subscribe("pred_force", 1, &SwitchControllerNode::Callback_pred_force, this);
@@ -406,9 +406,8 @@ void SwitchControllerNode::PublishTauDiffTask(){
   std_msgs::Float64MultiArray msg;
   msg.data.clear();
 
-  std::array<double, 6> tau_task {ctrl_ts_nric.GetTauDiffTask()};
-  for (size_t i = 0; i < 6; i++){
-    msg.data.push_back(tau_task[i]);
+  for (size_t i = 0; i < 7; i++){
+    msg.data.push_back(ctrl_ts_nric.tau_shift(i));
   }
   
   tau_diff_pub.publish(msg);
@@ -532,6 +531,7 @@ int main(int argc, char **argv){
       n.PublishTauAJoint();
       n.PublishTauCTask();
       n.PublishJacobian();
+      n.PublishTauDiffTask();
     }
 
     if (n.IsStoppedByError()){
