@@ -57,10 +57,12 @@ private:
   std::array<double, 6> tau_A_t;
   std::array<double, 7> tau_A_j;
   std::array<double, 7> e_nr;
-  std::array<double, 6> tau_C_t;
-  std::array<double, 6> tau_diff;
+  std::array<double, 7> tau_C;
+  std::array<double, 7> tau_diff;
   int exit_code = 0;
   int qp_norm_cond = 0;
+  int wpcount = 0;
+  int wp_num = 35;
 
   qp_int n_ = 7;   // # of variable (= # of Panda joints)
   qp_int m_ = 28;  // # of ineq consts
@@ -115,6 +117,8 @@ public:
   Eigen::MatrixXd temp_L;
   Eigen::MatrixXd temp_gain;
 
+  std::vector<Eigen::Affine3d> waypoints;
+
   TaskSpaceNRICCtrl(Robot7 *robot) 
     : Controller(robot)
     , k1(6,6)
@@ -163,10 +167,12 @@ public:
   std::array<double, 6> GetTauATask() {return tau_A_t;};
   std::array<double, 7> GetTauAJoint() {return tau_A_j;};
   std::array<double, 7> GetENR() {return e_nr;};
-  std::array<double, 6> GetTauCTask() {return tau_C_t;};
-  std::array<double, 6> GetTauDiffTask() {return tau_diff;};
+  std::array<double, 7> GetTauCTask() {return tau_C;};
+  std::array<double, 7> GetTauDiffTask() {return tau_diff;};
 
   Eigen::VectorXd computeTau(const Eigen::VectorXd &nominal_q, const Eigen::VectorXd &nominal_dq, const Eigen::Affine3d &EE_pose_d);
+  std::vector<Eigen::Affine3d> InterpolateDesPose(const Eigen::Affine3d &current_pose, const Eigen::Affine3d &desired_pose, int num_waypoints);
+  
   
   void init();
   RobotTorque7 loop(const RobotState7 &robot_state);

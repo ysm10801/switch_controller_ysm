@@ -6,6 +6,33 @@ namespace switch_controller{
  * task space NRIC controller
  * *******************************/
 
+std::vector<Eigen::Affine3d> TaskSpaceNRICCtrl::InterpolateDesPose(const Eigen::Affine3d &current_pose, const Eigen::Affine3d &desired_pose, int num_waypoints){
+  std::vector<Eigen::Affine3d> waypoints;
+  waypoints.reserve(num_waypoints);
+
+  Eigen::Quaterniond start_rot(current_pose.rotation());
+  Eigen::Quaterniond end_rot(desired_pose.rotation());
+
+  Eigen::Vector3d start_trans = current_pose.translation();
+  Eigen::Vector3d end_trans = desired_pose.translation();
+
+  for (int i = 0; i < num_waypoints; ++i)
+  {
+    double alpha = static_cast<double>(i) / (num_waypoints - 1); // 0 ~ 1
+
+    Eigen::Quaterniond q_interp = start_rot.slerp(alpha, end_rot);
+
+    Eigen::Vector3d t_interp = start_trans + alpha * (end_trans - start_trans);
+
+    Eigen::Affine3d interp = Eigen::Affine3d::Identity();
+    interp.linear() = q_interp.toRotationMatrix();
+    interp.translation() = t_interp;
+
+    waypoints.push_back(interp);
+  }
+  return waypoints;
+}
+
 Eigen::VectorXd TaskSpaceNRICCtrl::computeTau(const Eigen::VectorXd &nominal_q, const Eigen::VectorXd &nominal_dq, const Eigen::Affine3d &EE_pose_d){
   // Nominal Robot M,c,g
   Eigen::MatrixXd nominal_mass_matrix = robot->RequestNominalMassMatrix(nominal_q) + reflected_inertia;
@@ -139,6 +166,9 @@ void TaskSpaceNRICCtrl::init(){
 
   temp_L = K + gamma;
   temp_gain = 1e-6 * Kp + 1e-3 * Eigen::MatrixXd::Identity(7,7);
+
+  waypoints.reserve(wp_num);
+
 };
 
 //torque control loop function
@@ -187,9 +217,18 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   Eigen::MatrixXd nominal_J_t = robot->RequestNominalTaskJacobian(nominal_plant.q);
   nominal_plant.ee_pose = nominal_EE_pose; // for visualization
 
+  // if(wpcount == 0){
+  //   waypoints = InterpolateDesPose(nominal_EE_pose, EE_pose_d, wp_num);
+  //   wpcount = wp_num;
+  // }
+
   tauC = TaskSpaceNRICCtrl::computeTau(C_nominal_plant.q, C_nominal_plant.dq, EE_pose_d);
+  // tauC = TaskSpaceNRICCtrl::computeTau(C_nominal_plant.q, C_nominal_plant.dq, waypoints[wp_num - wpcount]);
 
   tauC_unconst = TaskSpaceNRICCtrl::computeTau(nominal_plant.q, nominal_plant.dq, EE_pose_d);
+  // tauC_unconst = TaskSpaceNRICCtrl::computeTau(nominal_plant.q, nominal_plant.dq, waypoints[wp_num - wpcount]);
+
+  // wpcount = wpcount-1;
 
   // std::cout << "jacobian_b_transpose" << std::endl;
   // for(int i=0 ; i<7 ; ++i){
@@ -200,7 +239,13 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   // }
 
   // Constraints from predicted FT
-  tau_shift = jacobian_b.transpose() * FT_pred - (tauC - C_nominal_coriolis - C_nominal_gravity);
+  if (FT_pred.norm() > 5.0){
+    tau_shift = - jacobian_b.transpose() * FT_pred;
+  }
+  else{
+    tau_shift.setZero();
+  }
+  // tau_shift = - jacobian_b.transpose() * FT_pred;
 
   // std::cout << "tau_shift" << std::endl;
   // for(int i=0 ; i<7 ; ++i){
@@ -297,11 +342,11 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   // NOMINAL-REAL TASK PD FOR ESTIMATION
   
-  // Eigen::Vector3d est_nominal_EE_trans(nominal_EE_pose.translation());
-  Eigen::Vector3d est_nominal_EE_trans(C_nominal_EE_pose.translation());
+  Eigen::Vector3d est_nominal_EE_trans(nominal_EE_pose.translation());
+  // Eigen::Vector3d est_nominal_EE_trans(C_nominal_EE_pose.translation());
   Eigen::Vector3d EE_trans_r(EE_pose.translation());
-  // Eigen::Quaterniond est_nominal_EE_rot(nominal_EE_pose.linear());
-  Eigen::Quaterniond est_nominal_EE_rot(C_nominal_EE_pose.linear());
+  Eigen::Quaterniond est_nominal_EE_rot(nominal_EE_pose.linear());
+  // Eigen::Quaterniond est_nominal_EE_rot(C_nominal_EE_pose.linear());
   Eigen::Quaterniond EE_rot_r(EE_pose.linear());
 
   //noFlip
@@ -381,10 +426,10 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   //gravity compensated by real panda
   Eigen::VectorXd tauC_panda(tauC - C_nominal_gravity);
+  Eigen::VectorXd tauC_unc_panda(tauC_unconst - nominal_gravity);
 
   for (size_t i = 0; i < output.size(); ++i) {
-    output[i] = tauA[i] + tauC_panda[i];
-    // output[i] = tauC_panda[i];
+    output[i] = tauA[i] + tauC_unc_panda[i];
   }
 
   Eigen::VectorXd tauA_t = temp_a;
@@ -400,6 +445,8 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   for(int i ; i < 7 ; i++){
     tau_A_j[i] = tauA_j(i);
     e_nr[i] = enr(i);
+    tau_diff[i] = tau_shift(i);
+    tau_C[i] = tauC(i) - C_nominal_gravity(i);
   }
 
   // output = {0};

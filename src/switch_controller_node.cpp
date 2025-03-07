@@ -394,9 +394,9 @@ void SwitchControllerNode::PublishTauCTask(){
   std_msgs::Float64MultiArray msg;
   msg.data.clear();
 
-  std::array<double, 6> tau_task {ctrl_ts_nric.GetTauCTask()};
-  for (size_t i = 0; i < 6; i++){
-    msg.data.push_back(tau_task[i]);
+  std::array<double, 7> tau_c {ctrl_ts_nric.GetTauCTask()};
+  for (size_t i = 0; i < 7; i++){
+    msg.data.push_back(tau_c[i]);
   }
   
   tau_C_pub.publish(msg);
@@ -406,8 +406,10 @@ void SwitchControllerNode::PublishTauDiffTask(){
   std_msgs::Float64MultiArray msg;
   msg.data.clear();
 
+  std::array<double, 7> tau_shift {ctrl_ts_nric.GetTauDiffTask()};
+
   for (size_t i = 0; i < 7; i++){
-    msg.data.push_back(ctrl_ts_nric.tau_shift(i));
+    msg.data.push_back(tau_shift[i]);
   }
   
   tau_diff_pub.publish(msg);
