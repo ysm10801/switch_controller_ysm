@@ -150,8 +150,8 @@ void TaskSpaceNRICCtrl::init(){
   // enr_max << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0 ;         // almost no constraint
   enr_min = -enr_max;
 
-  tauA_max << 5.0, 5.0, 5.0, 4.0, 4.0, 2.0, 2.0;
-  // tauA_max << 3.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0;
+  // tauA_max << 5.0, 5.0, 5.0, 4.0, 4.0, 2.0, 2.0;
+  tauA_max << 3.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0;
   // tauA_max << 1.0, 1.0, 1.0, 0.7, 0.7, 0.3, 0.3;
   // tauA_max << 0.5, 0.5, 0.5, 0.3, 0.3, 0.2, 0.2;
   // tauA_max << 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0 ;         // almost no constraint
@@ -239,7 +239,7 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   // }
 
   // Constraints from predicted FT
-  if (FT_pred.norm() > 5.0){
+  if (FT_pred.norm() > 15.0){
     tau_shift = - jacobian_b.transpose() * FT_pred;
   }
   else{
@@ -252,7 +252,6 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   //   std::cout << tau_shift(i) << std::endl;
   // }
   // std::cout << "\n" <<std::endl;
-
 
   // QP for Constraints
 
@@ -426,10 +425,12 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   //gravity compensated by real panda
   Eigen::VectorXd tauC_panda(tauC - C_nominal_gravity);
-  Eigen::VectorXd tauC_unc_panda(tauC_unconst - nominal_gravity);
+  // Eigen::VectorXd tauC_unc_panda(tauC_unconst - nominal_gravity);
+  // Eigen::VectorXd tauC_pr_panda(tauC_pr - C_nominal_gravity);
 
   for (size_t i = 0; i < output.size(); ++i) {
-    output[i] = tauA[i] + tauC_unc_panda[i];
+    // output[i] = tauA[i] + tauC_unc_panda[i];
+    output[i] = tauA[i] + tauC_panda[i];
   }
 
   Eigen::VectorXd tauA_t = temp_a;
