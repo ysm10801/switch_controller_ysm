@@ -221,20 +221,22 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   Eigen::MatrixXd pseudo_inverse_J_t = C_nominal_J_t.transpose() * 
   (C_nominal_J_t * C_nominal_J_t.transpose()).inverse();
+
+  Eigen::MatrixXd J_check = C_nominal_J_t * pseudo_inverse_J_t;
   
-  // std::cout << "pseudo_inverse_J_t: " << std::endl;
-  // for (int i = 0; i < 7; i++){
-  //   for (int k = 0; k < 6; k++){
-  //     std::cout << pseudo_inverse_J_t(i,k) << " ";
-  //   }
-  //   std::cout << std::endl;
-  // }
+  std::cout << "pseudo_inverse_J_t: " << std::endl;
+  for (int i = 0; i < 6; i++){
+    for (int k = 0; k < 6; k++){
+      std::cout << J_check(i,k) << " ";
+    }
+    std::cout << std::endl;
+  }
 
   //null-space control
   Eigen::MatrixXd null_proj = Eigen::MatrixXd::Identity(7, 7) - pseudo_inverse_J_t * C_nominal_J_t;
   Eigen::VectorXd tau_null = - null_proj * (kd_null * C_nominal_plant.dq);
 
-  phi_n =  C_nominal_mass_matrix.inverse() * (tauC - C_nominal_coriolis - C_nominal_gravity - tau_null);
+  phi_n =  C_nominal_mass_matrix.inverse() * (tauC - C_nominal_coriolis - C_nominal_gravity);
   diag_phi_n = phi_n.asDiagonal();
 
   // std::cout << "phi_n: " << phi_n.transpose() << std::endl;
@@ -259,7 +261,7 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   P.setZero(); c.setZero(); G.setZero(); h.setZero();
 
-  double alpha = 10;
+  double alpha = 1e2;
 
   Eigen::MatrixXd A(14,14); A.setZero();
   Eigen::VectorXd b(14); b.setZero();
@@ -267,9 +269,9 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   A.block(0,0,7,7) = Eigen::MatrixXd::Identity(7,7);
   A.block(7,7,7,7) = Eigen::MatrixXd::Identity(7,7);
-  A.block(0,7,7,7) = diag_phi_n;
+  // A.block(0,7,7,7) = diag_phi_n;
 
-  b.segment(0,7) = phi_n; // ==q_ddot free
+  b.segment(0,7) = - phi_n; // ==q_ddot free
 
   W.block(0,0,7,7) = C_nominal_mass_matrix;
   W.block(7,7,7,7) = alpha * Eigen::MatrixXd::Identity(nv, nv);
@@ -286,26 +288,28 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
 
   G.block(0, 0, 7, 7) = - Eigen::MatrixXd::Identity(nv, nv);
   G.block(7, 0, 7, 7) = Eigen::MatrixXd::Identity(nv, nv);
-  G.block(14, 7, 7, 7) = - Eigen::MatrixXd::Identity(nv, nv);
-  G.block(21, 7, 7, 7) = Eigen::MatrixXd::Identity(nv, nv);
+  G.block(14, 7, 7, 7) = diag_phi_n;
+  G.block(21, 7, 7, 7) = -diag_phi_n;
   
   h.segment(0, 7) = - temp_gain.inverse() * (temp_L.inverse()*tauA_min + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));   //tau_A Constraitns
   h.segment(7, 7) = temp_gain.inverse() * (temp_L.inverse()*tauA_max + dq - C_nominal_plant.dq + Kp * (q + dq * dt - C_nominal_plant.q - C_nominal_plant.dq * dt));     //tau_A Constraitns
+  h.segment(14, 7) = phi_n - phi_n_min;
+  h.segment(21, 7) = phi_n_max - phi_n;
 
-  Eigen::VectorXd lambda_lower(7);
-  Eigen::VectorXd lambda_upper(7);
-  for (int i = 0; i < 7; i++){
-    if (phi_n(i) > 0) {
-        lambda_lower(i) = 0.0;
-        lambda_upper(i) = 1 - phi_n_min(i) / phi_n(i);
-    }
-    else{
-        lambda_lower(i) = 0.0;
-        lambda_upper(i) = 1 - phi_n_max(i) / phi_n(i);
-    }
-  }
-  h.segment(14, 7) = -lambda_lower;   // phi_n Constraitns
-  h.segment(21, 7) = lambda_upper;     // phi_n Constraitns
+  // Eigen::VectorXd lambda_lower(7);
+  // Eigen::VectorXd lambda_upper(7);
+  // for (int i = 0; i < 7; i++){
+  //   if (phi_n(i) > 0) {
+  //       lambda_lower(i) = 0.0;
+  //       lambda_upper(i) = 1 - phi_n_min(i) / phi_n(i);
+  //   }
+  //   else{
+  //       lambda_lower(i) = 0.0;
+  //       lambda_upper(i) = 1 - phi_n_max(i) / phi_n(i);
+  //   }
+  // }
+  // h.segment(14, 7) = -lambda_lower;   // phi_n Constraitns
+  // h.segment(21, 7) = lambda_upper;     // phi_n Constraitns
 
   // std::cout << "P: " << std::endl;
   // for (int i = 0; i < 14; i++){
@@ -489,34 +493,6 @@ RobotTorque7 TaskSpaceNRICCtrl::loop(const RobotState7 &robot_state){
   // Compute control torques
   Eigen::VectorXd temp_a = - e_task_NR ;
   // Eigen::VectorXd temp_a = - e_task_NR - edot_task_NR;
-
-
-//////////////////////////////////des-real/////////////////////////////////////
-  // if (EE_rot_d.coeffs().dot(EE_rot_r.coeffs()) < 0.0) {
-  //     EE_rot_d.coeffs() << -EE_rot_d.coeffs();
-  // }
-
-  // Eigen::Quaterniond est_error_rot_a_(EE_rot_d * EE_rot_r.inverse());
-  // Eigen::AngleAxisd est_angle_axis_(est_error_rot_a_);
-  // Eigen::Vector3d est_error_rot_a_rotvec_(est_angle_axis_.angle() * est_angle_axis_.axis());
-  // Eigen::Vector3d est_error_rot_(est_error_rot_a_rotvec_);
-
-  // Eigen::Matrix<double, 6, 1> est_error_task_; est_error_task_.setZero();
-  // est_error_task_.head<3>() = EE_trans_r - EE_trans_d;
-  // est_error_task_.tail<3>() = est_error_rot_;
-
-  // double pos_weight_ = std::min(1.0, pow(est_error_task_.head(3).norm() * 100.0, 3));
-  // double rot_weight_ = std::min(1.0, pow(est_error_task_.tail(3).norm() * 20.0, 3));
-
-  // Eigen::MatrixXd weight_mtx_ = Eigen::MatrixXd::Identity(6,6);
-  // weight_mtx_.diagonal() << pos_weight_, pos_weight_, pos_weight_, rot_weight_, rot_weight_, rot_weight_;
-
-  // Eigen::VectorXd e_task_DR = 2.0 * weight_mtx_ * k2 * est_error_task_;
-
-  // // Compute control torques
-  // Eigen::VectorXd temp_a_ = - e_task_DR ;
-//////////////////////////////////des-real/////////////////////////////////////
-
 
   /////////////////////////////////////////////////
 
